@@ -1,0 +1,7 @@
+# OpenRouter Free Router Mapping
+model: openrouter/openrouter/free
+
+# Global Constraint Guards
+auto-commits: false
+dirty-commits: false
+suggest-shell-commands: true
