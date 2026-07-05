@@ -36,3 +36,22 @@ Before sourcing these presets, ensure you have the following installed and confi
 | copilot-ask     | `@workspace/Chat`   | Contextual questions and explanations. Absolute read-only.       |
 | copilot-agent   | `Copilot Edits`     | Iterative, multi-file code generations and structural refactors. |
 | copilot-plan    | `Specs/Scaffolding` | Solution architecting. Isolated entirely to a local plan.md.     |
+
+# 🛡️ Enforced Guardrails & Behavior
+
+> [!IMPORTANT]
+> By default, this ecosystem routes traffic through OpenRouter's official free model proxy using the openrouter/openrouter/free model designation.
+
+## 🔗 Aider LLM Documentation for OpenRouter
+
+To maintain absolute control over your local codebase, the following behavioral constraints are hardcoded into the configuration:
+
+- **Read-Only Ask Mode:** The copilot-ask layer is strictly blocked from making disk modifications, even if the model attempts to return an editing format block.
+
+- **Isolated Plan Mode:** The copilot-plan execution engine strictly isolates read-write permissions to a dedicated plan.md file. It cannot modify your source files.
+
+- **Zero Auto-Commits:** Automatic Git commits are completely disabled globally across all operational modes. Your working directory stays dirty until you choose to commit.
+
+## 🔗 Aider Git Integration Details
+
+- **Mandatory Execution Prompts:** Every single shell command or code modifications block suggested by the LLM halts and forces an interactive user confirmation screen ([y/n]) before taking action.
