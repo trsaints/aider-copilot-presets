@@ -36,8 +36,30 @@ _generate_copilot_session_path() {
   echo "$target_dir/$clean_title.md"
 }
 
+_prepare_copilot_session_dir() {
+  local repo_root repo_name target_dir
+
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    repo_root=$(git rev-parse --show-toplevel)
+    repo_name=$(basename "$repo_root")
+  else
+    repo_root="$PWD"
+    repo_name=$(basename "$PWD")
+  fi
+
+  target_dir="$HOME/.aider-sessions/$repo_name"
+  mkdir -p "$target_dir"
+
+  ln -sf "$target_dir/.aider.input.history" "$repo_root/.aider.input.history"
+  ln -sf "$target_dir/cache.db" "$repo_root/cache.db"
+
+  echo "$target_dir"
+}
+
 # 1. ASK MODE PRESET
 copilot-ask() {
+  _prepare_copilot_session_dir
+
   if [ $# -eq 0 ]; then
     # Interactive launch: Ask for a quick context title first
     echo -n "💬 Enter a topic/title for this Ask Session: "
@@ -55,6 +77,8 @@ copilot-ask() {
 
 # 2. AGENT MODE PRESET
 copilot-agent() {
+  _prepare_copilot_session_dir
+
   if [ $# -eq 0 ]; then
     echo -n "🤖 Enter the feature/bug name for this Agent Session: "
     read -r user_title
@@ -70,6 +94,7 @@ copilot-agent() {
 
 # 3. PLAN MODE PRESET
 copilot-plan() {
+  _prepare_copilot_session_dir
   touch plan.md
   if [ $# -eq 0 ]; then
     echo -n "📝 Enter the planning objective for this Session: "
