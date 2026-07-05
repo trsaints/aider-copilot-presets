@@ -5,6 +5,7 @@ This repository provides an optimized Aider configuration designed to replicate 
 ## 🚀 Key Features
 
 - 🗄️ **Centralized Sessions:** Chat logs are routed to `$HOME/.aider-sessions/<repo_name>/` so your project workspace is never polluted with untracked markdown histories.
+- 🔐 **Safe Repo Context:** Aider still sees the current repo root and name for context, but write operations are blocked and session artifacts remain outside the repository.
 - 🏷️ **Dynamic Thread Naming:** Sessions are automatically named after your initial question, mimicking Copilot's sidebar threads.
   - _Example:_ Running `copilot-ask "Explain dependency injection in ASP.NET 10"` maps your ongoing conversation straight to `$HOME/.aider-sessions/<repo_name>/Explain dependency injection in ASP_NET 10.md`.
   - ℹ️ _Note:_ If your initial prompt exceeds 96 characters, the filename is safely truncated and appended with trailing dots (`...md`).
