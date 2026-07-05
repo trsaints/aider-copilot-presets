@@ -4,109 +4,144 @@
 # Dynamic Copilot-Style Session Manager for Aider
 # ---------------------------------------------------------------------
 
+_resolve_repo_root() {
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git rev-parse --show-toplevel
+  else
+    printf '%s\n' "$PWD"
+  fi
+}
+
 _generate_copilot_session_path() {
   local raw_title="$1"
   local repo_name
 
-  # 1. Resolve current Git repository name (fallback to directory name)
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     repo_name=$(basename "$(git rev-parse --show-toplevel)")
   else
     repo_name=$(basename "$PWD")
   fi
 
-  # 2. Fallback to a timestamp if no initial prompt or title is given
   if [ -z "$raw_title" ]; then
     raw_title="interactive_session_$(date +%Y%m%d_%H%M%S)"
   fi
 
-  # 3. Truncate to first 96 characters and sanitize unsafe filename characters
   local clean_title
   clean_title=$(echo "$raw_title" | cut -c1-96 | sed 's/[^a-zA-Z0-9 _-]/_/g')
 
-  # 4. Append trailing dots if the original prompt was truncated
   if [ ${#raw_title} -gt 96 ]; then
     clean_title="${clean_title}..."
   fi
 
-  # 5. Build and ensure the target directory structure exists
   local target_dir="$HOME/.aider-sessions/$repo_name"
   mkdir -p "$target_dir"
 
-  echo "$target_dir/$clean_title.md"
+  printf '%s\n' "$target_dir/$clean_title.md"
 }
 
 _prepare_copilot_session_dir() {
   local repo_root repo_name target_dir
 
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    repo_root=$(git rev-parse --show-toplevel)
-    repo_name=$(basename "$repo_root")
-  else
-    repo_root="$PWD"
-    repo_name=$(basename "$PWD")
-  fi
-
+  repo_root=$(_resolve_repo_root)
+  repo_name=$(basename "$repo_root")
   target_dir="$HOME/.aider-sessions/$repo_name"
+
   mkdir -p "$target_dir"
+  touch "$target_dir/.aider.input.history" "$target_dir/cache.db"
 
   ln -sf "$target_dir/.aider.input.history" "$repo_root/.aider.input.history"
   ln -sf "$target_dir/cache.db" "$repo_root/cache.db"
 
-  echo "$target_dir"
+  printf '%s\n' "$target_dir"
 }
 
 # 1. ASK MODE PRESET
 copilot-ask() {
-  _prepare_copilot_session_dir
+  local repo_root target_dir input_history_file history_file
+  repo_root=$(_resolve_repo_root)
+  target_dir=$(_prepare_copilot_session_dir)
+  input_history_file="$target_dir/.aider.input.history"
 
   if [ $# -eq 0 ]; then
-    # Interactive launch: Ask for a quick context title first
     echo -n "💬 Enter a topic/title for this Ask Session: "
     read -r user_title
-    local history_file
     history_file=$(_generate_copilot_session_path "$user_title")
-    aider --chat-mode ask --chat-history-file "$history_file"
+    pushd "$repo_root" >/dev/null || return 1
+    aider --chat-mode ask --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --restore-chat-history
+    popd >/dev/null || return 1
   else
-    # One-shot launch: Use the prompt directly to name the file
-    local history_file
     history_file=$(_generate_copilot_session_path "$*")
-    aider --chat-mode ask --chat-history-file "$history_file" --message "$*"
+    pushd "$repo_root" >/dev/null || return 1
+    aider --chat-mode ask --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --message "$*" && \
+    aider --chat-mode ask --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --restore-chat-history
+    popd >/dev/null || return 1
   fi
 }
 
 # 2. AGENT MODE PRESET
 copilot-agent() {
-  _prepare_copilot_session_dir
+  local repo_root target_dir input_history_file history_file
+  repo_root=$(_resolve_repo_root)
+  target_dir=$(_prepare_copilot_session_dir)
+  input_history_file="$target_dir/.aider.input.history"
 
   if [ $# -eq 0 ]; then
     echo -n "🤖 Enter the feature/bug name for this Agent Session: "
     read -r user_title
-    local history_file
     history_file=$(_generate_copilot_session_path "$user_title")
-    aider --chat-mode architect --chat-history-file "$history_file"
+    pushd "$repo_root" >/dev/null || return 1
+    aider --chat-mode architect --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --restore-chat-history
+    popd >/dev/null || return 1
   else
-    local history_file
     history_file=$(_generate_copilot_session_path "$*")
-    aider --chat-mode architect --chat-history-file "$history_file" --message "$*"
+    pushd "$repo_root" >/dev/null || return 1
+    aider --chat-mode architect --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --message "$*" && \
+    aider --chat-mode architect --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --restore-chat-history
+    popd >/dev/null || return 1
   fi
 }
 
 # 3. PLAN MODE PRESET
 copilot-plan() {
-  _prepare_copilot_session_dir
+  local repo_root target_dir input_history_file history_file
+  repo_root=$(_resolve_repo_root)
+  target_dir=$(_prepare_copilot_session_dir)
+  input_history_file="$target_dir/.aider.input.history"
+
+  pushd "$repo_root" >/dev/null || return 1
   touch plan.md
+
   if [ $# -eq 0 ]; then
     echo -n "📝 Enter the planning objective for this Session: "
     read -r user_title
-    local history_file
     history_file=$(_generate_copilot_session_path "$user_title")
     aider plan.md --chat-mode code --chat-history-file "$history_file" \
-      --message "You are in Plan Mode. Your sole write target is plan.md. Establish your architecture strategy here."
+      --input-history-file "$input_history_file" \
+      --message "You are in Plan Mode. Your sole write target is plan.md. Establish your architecture strategy here." && \
+    aider plan.md --chat-mode code --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --restore-chat-history
   else
-    local history_file
     history_file=$(_generate_copilot_session_path "$*")
     aider plan.md --chat-mode code --chat-history-file "$history_file" \
-      --message "Update plan.md regarding: $*"
+      --input-history-file "$input_history_file" \
+      --message "Update plan.md regarding: $*" && \
+    aider plan.md --chat-mode code --chat-history-file "$history_file" \
+      --input-history-file "$input_history_file" \
+      --restore-chat-history
   fi
+
+  popd >/dev/null || return 1
 }
