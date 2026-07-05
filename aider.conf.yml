@@ -2,6 +2,9 @@
 model: openrouter/openrouter/free
 
 # Global Constraint Guards
+# Keep git integration enabled so Aider can detect the repo and repo map.
+git: true
 auto-commits: false
 dirty-commits: false
-suggest-shell-commands: true
+commit: false
+suggest-shell-commands: false
