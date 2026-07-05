@@ -42,11 +42,13 @@ copilot-ask() {
     # Interactive launch: Ask for a quick context title first
     echo -n "💬 Enter a topic/title for this Ask Session: "
     read -r user_title
-    local history_file=$(_generate_copilot_session_path "$user_title")
+    local history_file
+    history_file=$(_generate_copilot_session_path "$user_title")
     aider --chat-mode ask --chat-history-file "$history_file"
   else
     # One-shot launch: Use the prompt directly to name the file
-    local history_file=$(_generate_copilot_session_path "$*")
+    local history_file
+    history_file=$(_generate_copilot_session_path "$*")
     aider --chat-mode ask --chat-history-file "$history_file" --message "$*"
   fi
 }
@@ -56,10 +58,12 @@ copilot-agent() {
   if [ $# -eq 0 ]; then
     echo -n "🤖 Enter the feature/bug name for this Agent Session: "
     read -r user_title
-    local history_file=$(_generate_copilot_session_path "$user_title")
+    local history_file
+    history_file=$(_generate_copilot_session_path "$user_title")
     aider --chat-mode architect --chat-history-file "$history_file"
   else
-    local history_file=$(_generate_copilot_session_path "$*")
+    local history_file
+    history_file=$(_generate_copilot_session_path "$*")
     aider --chat-mode architect --chat-history-file "$history_file" --message "$*"
   fi
 }
@@ -70,11 +74,13 @@ copilot-plan() {
   if [ $# -eq 0 ]; then
     echo -n "📝 Enter the planning objective for this Session: "
     read -r user_title
-    local history_file=$(_generate_copilot_session_path "$user_title")
+    local history_file
+    history_file=$(_generate_copilot_session_path "$user_title")
     aider plan.md --chat-mode code --chat-history-file "$history_file" \
       --message "You are in Plan Mode. Your sole write target is plan.md. Establish your architecture strategy here."
   else
-    local history_file=$(_generate_copilot_session_path "$*")
+    local history_file
+    history_file=$(_generate_copilot_session_path "$*")
     aider plan.md --chat-mode code --chat-history-file "$history_file" \
       --message "Update plan.md regarding: $*"
   fi
