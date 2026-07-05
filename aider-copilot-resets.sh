@@ -55,6 +55,17 @@ _prepare_copilot_session_dir() {
   printf '%s\n' "$target_dir"
 }
 
+_generate_plan_filepath() {
+  local repo_root repo_name timestamp plan_filepath
+
+  repo_root=$(_resolve_repo_root)
+  repo_name=$(basename "$repo_root")
+  timestamp=$(date +%Y%m%d_%H%M%S)
+  plan_filepath="/tmp/aider-plan-${repo_name}-${timestamp}.md"
+
+  printf '%s\n' "$plan_filepath"
+}
+
 # 1. ASK MODE PRESET
 copilot-ask() {
   local repo_root target_dir input_history_file history_file
@@ -115,33 +126,42 @@ copilot-agent() {
 
 # 3. PLAN MODE PRESET
 copilot-plan() {
-  local repo_root target_dir input_history_file history_file
+  local repo_root target_dir input_history_file history_file plan_filepath
   repo_root=$(_resolve_repo_root)
   target_dir=$(_prepare_copilot_session_dir)
   input_history_file="$target_dir/.aider.input.history"
+  plan_filepath=$(_generate_plan_filepath)
+
+  # Create plan file in /tmp
+  touch "$plan_filepath"
+
+  # Create symlink from repo root to /tmp plan file
+  ln -sf "$plan_filepath" "$repo_root/plan.md"
 
   pushd "$repo_root" >/dev/null || return 1
-  touch plan.md
 
   if [ $# -eq 0 ]; then
     echo -n "📝 Enter the planning objective for this Session: "
     read -r user_title
     history_file=$(_generate_copilot_session_path "$user_title")
-    aider plan.md --chat-mode code --chat-history-file "$history_file" \
+    aider --chat-mode architect --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
-      --message "You are in Plan Mode. Your sole write target is plan.md. Establish your architecture strategy here." && \
-    aider plan.md --chat-mode code --chat-history-file "$history_file" \
+      --message "You are in Plan Mode. Create or add plan.md to the chat. Your sole write target is plan.md. Establish your architecture strategy here. Use /add plan.md if needed." && \
+    aider --chat-mode architect --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
       --restore-chat-history
   else
     history_file=$(_generate_copilot_session_path "$*")
-    aider plan.md --chat-mode code --chat-history-file "$history_file" \
+    aider --chat-mode architect --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
-      --message "Update plan.md regarding: $*" && \
-    aider plan.md --chat-mode code --chat-history-file "$history_file" \
+      --message "You are in Plan Mode. Add plan.md to the chat if not present. Update plan.md regarding: $*" && \
+    aider --chat-mode architect --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
       --restore-chat-history
   fi
 
   popd >/dev/null || return 1
+  
+  # Clean up symlink after session ends
+  rm -f "$repo_root/plan.md"
 }
