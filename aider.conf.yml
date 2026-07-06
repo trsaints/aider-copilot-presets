@@ -36,13 +36,6 @@ yes-always:
   false # NEVER set this true for these presets —
   # it's what keeps every edit/file-add/commit
   # confirmation interactive (y/n)
-auto-accept-architect:
-  false # architect mode defaults this to TRUE,
-  # which applies the editor model's diffs
-  # without a confirmation prompt — that
-  # bypasses yes-always entirely. Must be
-  # off for copilot-agent/copilot-plan to
-  # keep edits interactively reviewable.
 
 # --- Misc ---
 check-update: false # skip network call to check for new aider versions
