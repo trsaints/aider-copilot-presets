@@ -1,10 +1,43 @@
-# OpenRouter Free Router Mapping
+# ~/.aider.conf.yml
+# Shared settings across ask / agent / plan sessions.
+# Aider loads home dir -> git root -> cwd, last one loaded wins:
+# https://aider.chat/docs/config/aider_conf.html
+#
+# NOTE on the model line: openrouter/free is OpenRouter's "Free Models
+# Router" — it picks a *different* underlying free model on every request.
+# That's fine for copilot-ask (stateless-ish Q&A), but for copilot-agent and
+# copilot-plan it can silently swap edit-format behavior mid-conversation.
+# If you see garbled/rejected diffs, pin a single model instead, e.g.:
+#   model: openrouter/deepseek/deepseek-chat:free
+# (check https://openrouter.ai/models?order=top-weekly&supported_parameters=tools
+#  for whichever :free model is currently live — the free roster rotates).
 model: openrouter/openrouter/free
 
-# Global Constraint Guards
-# Keep git integration enabled so Aider can detect the repo and repo map.
-git: true
-auto-commits: false
-dirty-commits: false
-commit: false
-suggest-shell-commands: false
+# --- Git integration ---
+git: true # let aider see repo root / repo map
+gitignore: true # auto-add .aider* to .gitignore (default, kept explicit)
+auto-commits: false # never auto-commit LLM changes
+dirty-commits: false # never commit just because the tree is dirty
+
+# Don't let aider's commit trailers/authorship leak into history — your own
+# `git config user.name`/`user.email` per clone stays the sole source of
+# truth (useful when the same account is used for school vs. freelance work).
+attribute-author: false
+attribute-committer: false
+attribute-co-authored-by: false
+attribute-commit-message-author: false
+attribute-commit-message-committer: false
+
+# --- Autonomy guardrails ---
+suggest-shell-commands: false # don't offer to run shell commands post-edit
+auto-lint: false # don't auto-run linters after edits
+auto-test: false # don't auto-run tests after edits
+# NEVER set this true for these presets —
+yes-always: false
+# it's what keeps every edit/file-add/commit
+# confirmation interactive (y/n)
+
+# --- Misc ---
+check-update: false # skip network call to check for new aider versions
+analytics: false
+stream: true
