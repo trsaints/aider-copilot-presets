@@ -32,10 +32,17 @@ attribute-commit-message-committer: false
 suggest-shell-commands: false # don't offer to run shell commands post-edit
 auto-lint: false # don't auto-run linters after edits
 auto-test: false # don't auto-run tests after edits
-# NEVER set this true for these presets —
-yes-always: false
-# it's what keeps every edit/file-add/commit
-# confirmation interactive (y/n)
+yes-always:
+  false # NEVER set this true for these presets —
+  # it's what keeps every edit/file-add/commit
+  # confirmation interactive (y/n)
+auto-accept-architect:
+  false # architect mode defaults this to TRUE,
+  # which applies the editor model's diffs
+  # without a confirmation prompt — that
+  # bypasses yes-always entirely. Must be
+  # off for copilot-agent/copilot-plan to
+  # keep edits interactively reviewable.
 
 # --- Misc ---
 check-update: false # skip network call to check for new aider versions
