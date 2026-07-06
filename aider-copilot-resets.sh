@@ -320,12 +320,12 @@ copilot-plan() {
   # --file plan.md doesn't trigger a "create new file?" prompt.
   [ -f "$repo_root/plan.md" ] || : > "$repo_root/plan.md"
 
-  # --file plan.md is what actually enforces "sole write target" — it's the
-  # only file aider is allowed to edit without an extra interactive
-  # confirmation. Combined with yes-always:false in aider.conf.yml, any
-  # attempt to touch another file requires an explicit y/n from you.
+  # --file plan.md only restricts what aider treats as EDITABLE — it does
+  # not restrict reading. The repo map is still sent automatically, and the
+  # model can ask to see any file; you grant that with /read <path> (not
+  # /add) to keep it read-only-visible without making it editable.
   _start_session_single_flow architect \
-    "You are in Plan Mode. Do not propose changes to any file other than plan.md. Update plan.md with an architecture/approach plan for: " \
+    "You are in Plan Mode. You may read and reference any file in this repository — ask to see specific files if you need them and they will be shared with you as read-only context. However, you must never propose edits, diffs, or new files anywhere except plan.md; every output of this planning session belongs in plan.md. Objective: " \
     --file plan.md \
     || return 1
   return 0
