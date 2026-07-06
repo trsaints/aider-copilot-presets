@@ -82,6 +82,41 @@ _prepare_copilot_session_dir() {
   printf '%s\n' "$target_dir"
 }
 
+_prepare_plan_symlink() {
+  # Usage: _prepare_plan_symlink <repo_root>
+  # Keeps plan.md's actual bytes centralized in the session dir (outside
+  # the repo, same philosophy as .aider.input.history) while exposing it at
+  # the repo-relative path "plan.md" that --file/--read expect, via a
+  # symlink. Unlike the git shim, this is NEVER removed by _plan_cleanup —
+  # it must survive so a later copilot-agent session can read it back.
+  local repo_root="$1"
+  local repo_name session_dir plan_target repo_plan
+
+  repo_name=$(basename "$repo_root")
+  session_dir="$HOME/.aider-sessions/$repo_name"
+  mkdir -p "$session_dir" || return 1
+  plan_target="$session_dir/plan.md"
+  touch "$plan_target" 2>/dev/null || true
+
+  repo_plan="$repo_root/plan.md"
+  if [ -L "$repo_plan" ]; then
+    : # already our symlink from a previous session, nothing to do
+  elif [ -e "$repo_plan" ]; then
+    if [ ! -s "$repo_plan" ]; then
+      # empty stub from an older/broken version of these presets -- safe
+      # to replace with the symlink
+      rm -f "$repo_plan"
+      ln -s "$plan_target" "$repo_plan"
+    else
+      printf 'WARNING: %s exists with content and is not managed by these presets; leaving it as-is (session content will live in %s only).\n' "$repo_plan" "$plan_target" >&2
+    fi
+  else
+    ln -s "$plan_target" "$repo_plan"
+  fi
+
+  printf '%s\n' "$repo_plan"
+}
+
 _create_git_shim() {
   # Create a temp dir containing a git wrapper that blocks history-altering
   # subcommands. Returns shim dir path on stdout.
@@ -298,6 +333,10 @@ copilot-agent() {
     extra_args=(--read plan.md)
   fi
 
+  # Broad edit scope here (no --file restriction), so require an explicit
+  # confirmation before each architect edit is applied.
+  extra_args+=(--no-auto-accept-architect)
+
   _start_session_single_flow architect "Agent objective: " "${extra_args[@]}" || return 1
   return 0
 }
@@ -316,17 +355,18 @@ copilot-plan() {
   export USER_SESSION_TITLE="$user_title"
   repo_root=$(_resolve_repo_root)
 
-  # Ensure plan.md exists as a plain file *before* aider ever sees it, so
-  # --file plan.md doesn't trigger a "create new file?" prompt.
-  [ -f "$repo_root/plan.md" ] || : > "$repo_root/plan.md"
+  # Centralizes plan.md's bytes outside the repo and symlinks it back in at
+  # the repo-relative path aider expects. Persists across sessions.
+  _prepare_plan_symlink "$repo_root" >/dev/null || return 1
 
-  # --file plan.md only restricts what aider treats as EDITABLE — it does
-  # not restrict reading. The repo map is still sent automatically, and the
-  # model can ask to see any file; you grant that with /read <path> (not
-  # /add) to keep it read-only-visible without making it editable.
+  # --file plan.md is what actually enforces "sole write target" — it's the
+  # only file aider treats as editable. Edit scope is already locked down,
+  # so it's safe (and necessary, since the seed call is non-interactive) to
+  # auto-accept edits to it rather than wait on an unanswerable prompt.
   _start_session_single_flow architect \
     "You are in Plan Mode. You may read and reference any file in this repository — ask to see specific files if you need them and they will be shared with you as read-only context. However, you must never propose edits, diffs, or new files anywhere except plan.md; every output of this planning session belongs in plan.md. Objective: " \
     --file plan.md \
+    --auto-accept-architect \
     || return 1
   return 0
 }
