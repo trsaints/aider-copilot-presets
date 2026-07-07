@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-#
+
 # aider-copilot-presets.sh
 # Copilot-like ask / agent / plan wrappers around Aider.
-# Verified against https://aider.chat/docs (options reference, chat modes,
-# scripting) as of July 2026. See README.md for the full write-up of what
-# changed vs. the previous version and why.
 
 # Preserve caller IFS
 OLD_IFS="$IFS"
@@ -73,37 +70,35 @@ _prepare_copilot_session_dir() {
   printf '%s\n' "$target_dir"
 }
 
-_prepare_plan_symlink() {
-  # Usage: _prepare_plan_symlink <repo_root>
-  # Keeps plan.md's actual bytes centralized in the session dir (outside
-  # the repo, same philosophy as .aider.input.history) while exposing it at
-  # the repo-relative path "plan.md" as symlink
+_prepare_plan_file() {
+  # Usage: _prepare_plan_file <repo_root>
+  # plan.md must be a REAL file inside repo_root, not a symlink resolving
+  # outside it.
   local repo_root="$1"
-  local repo_name session_dir plan_target repo_plan
-
-  repo_name=$(basename "$repo_root")
-  session_dir="$HOME/.aider-sessions/$repo_name"
-
-  mkdir -p "$session_dir" || return 1
-
-  plan_target="$session_dir/plan.md"
-
-  touch "$plan_target" 2>/dev/null || true
+  local repo_plan gitignore_file
 
   repo_plan="$repo_root/plan.md"
+
   if [ -L "$repo_plan" ]; then
-    : # already our symlink from a previous session, nothing to do
-  elif [ -e "$repo_plan" ]; then
-    if [ ! -s "$repo_plan" ]; then
-      # empty stub from an older/broken version of these presets -- safe
-      # to replace with the symlink
-      rm -f "$repo_plan"
-      ln -s "$plan_target" "$repo_plan"
+    # Migrate a plan.md left over from the older symlink-based design: pull
+    # its real content back into the repo, then replace the symlink.
+    local old_target
+    old_target=$(readlink -f "$repo_plan" 2>/dev/null || true)
+    rm -f "$repo_plan"
+    if [ -n "$old_target" ] && [ -e "$old_target" ]; then
+      cp "$old_target" "$repo_plan"
     else
-      printf 'WARNING: %s exists with content and is not managed by these presets; leaving it as-is (session content will live in %s only).\n' "$repo_plan" "$plan_target" >&2
+      touch "$repo_plan"
     fi
+  elif [ ! -e "$repo_plan" ]; then
+    touch "$repo_plan" 2>/dev/null || return 1
+  fi
+
+  gitignore_file="$repo_root/.gitignore"
+  if [ -f "$gitignore_file" ]; then
+    grep -qxF 'plan.md' "$gitignore_file" 2>/dev/null || printf '\nplan.md\n' >> "$gitignore_file"
   else
-    ln -s "$plan_target" "$repo_plan"
+    printf 'plan.md\n' > "$gitignore_file" 2>/dev/null || true
   fi
 
   printf '%s\n' "$repo_plan"
@@ -148,7 +143,6 @@ _plan_cleanup() {
   # Only clean up the git shim. plan.md is a real, persistent deliverable —
   # it must survive so a later copilot-agent session can read it back.
   local shim_dir="${COPILOT_GIT_SHIM:-}"
-
   if [ -n "$shim_dir" ] && [ -d "$shim_dir" ]; then
     rm -rf "$shim_dir" 2>/dev/null || true
   fi
@@ -158,10 +152,6 @@ _print_session_diff_report() {
   # Usage: _print_session_diff_report <repo_root> <label>
   # Runs with the REAL git (called after the shim dir is torn down / from
   # outside the shimmed PATH), so this is never blocked by the shim itself.
-  # This is a visibility measure, not an enforcement one: it doesn't stop
-  # anything, it just makes sure that as a solo dev you get a plain,
-  # unmissable answer to "what did the agent actually touch" after every
-  # session, regardless of chat mode or how confident the prompt flags are.
   local repo_root="$1" label="$2" status
 
   if ! git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -169,26 +159,21 @@ _print_session_diff_report() {
   fi
 
   status=$(git -C "$repo_root" status --porcelain 2>/dev/null)
-
   printf -- '--- %s: working tree changes ---\n' "$label"
-
   if [ -z "$status" ]; then
     printf '(none)\n'
   else
     printf '%s\n' "$status"
     git -C "$repo_root" --no-pager diff --stat 2>/dev/null
   fi
-
   printf -- '---\n'
 }
 
 _check_aider_available() {
   if ! command -v aider >/dev/null 2>&1; then
     printf 'ERROR: "aider" CLI not found in PATH. Install or add it to PATH before using these helpers.\n' >&2
-
     return 1
   fi
-
   return 0
 }
 
@@ -199,26 +184,25 @@ _require_nonempty_prompt() {
   local input
 
   printf '%s' "$prompt_text"
-
   if ! read -r input; then
     input=""
   fi
 
   if [ -z "${input:-}" ]; then
     printf 'ERROR: empty prompt provided; aborting.\n' >&2
-
     return 1
   fi
 
   printf -v "$__result_var" '%s' "$input"
-
   return 0
 }
 
 # Optional, opt-in filesystem sandbox using bubblewrap (if installed).
+# This does NOT replace a dedicated OS user/group — it's a lighter-weight
+# mitigation that doesn't require one-time root setup. 
+# Enable with: export AIDER_COPILOT_SANDBOX=1
 _maybe_sandboxed_aider() {
   local repo_root="$1" target_dir="$2"; shift 2
-
   if [ "${AIDER_COPILOT_SANDBOX:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
     bwrap \
       --ro-bind /usr /usr \
@@ -253,7 +237,6 @@ _start_session_single_flow() {
     user_title="$USER_SESSION_TITLE"
   else
     printf 'ERROR: session title not provided; aborting.\n' >&2
-
     return 1
   fi
 
@@ -270,33 +253,28 @@ _start_session_single_flow() {
   history_file=$(_generate_copilot_session_path "$repo_root" "$user_title") || {
     _plan_cleanup
     trap - EXIT
-
     return 1
   }
 
   pushd "$repo_root" >/dev/null 2>&1 || {
     _plan_cleanup
     trap - EXIT
-
     return 1
   }
 
   # Seed the conversation. --message sends one instruction, applies the
-  # reply, then EXITS aider entirely.
+  # reply, then EXITS aider entirely
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
     aider --chat-mode "$chat_mode" \
       --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
       "${extra_args[@]}" \
       --message "${message_prefix}${user_title}"
-
   rc=$?
-
   if [ $rc -ne 0 ]; then
     popd >/dev/null 2>&1 || true
     _plan_cleanup
     trap - EXIT
-
     return 1
   fi
 
@@ -306,7 +284,6 @@ _start_session_single_flow() {
       --input-history-file "$input_history_file" \
       --restore-chat-history \
       "${extra_args[@]}"
-
   rc=$?
 
   popd >/dev/null 2>&1 || true
@@ -325,8 +302,7 @@ _start_session_single_flow() {
 }
 
 # Two-phase plan flow: ask (discuss, zero edit risk by aider's own design)
-# then code (single-model write, restricted to plan.md). We deliberately do
-# NOT use architect mode here.
+# then code (single-model write, restricted to plan.md).
 _start_plan_flow() {
   local user_title="$1"
   local repo_root target_dir input_history_file history_file git_shim rc
@@ -337,8 +313,6 @@ _start_plan_flow() {
   target_dir=$(_prepare_copilot_session_dir "$repo_root") || return 1
   input_history_file="$target_dir/.aider.input.history"
 
-  _prepare_plan_symlink "$repo_root" >/dev/null || return 1
-
   git_shim=$(_create_git_shim) || return 1
   COPILOT_GIT_SHIM="$git_shim"
   trap _plan_cleanup EXIT
@@ -346,69 +320,50 @@ _start_plan_flow() {
   history_file=$(_generate_copilot_session_path "$repo_root" "$user_title") || {
     _plan_cleanup
     trap - EXIT
-
     return 1
   }
 
   pushd "$repo_root" >/dev/null 2>&1 || {
     _plan_cleanup
     trap - EXIT
-
     return 1
   }
 
-  # Phase 1 — ask mode: discuss the objective, no edits are possible at all
+  # Phase 1 — ask mode: discussion only
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
     aider --chat-mode ask \
       --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
-      --file plan.md \
-      --message "You are in Plan Mode, discussion phase. Talk through requirements, approach, tradeoffs, and open questions for the objective below. Reference the current contents of plan.md if any. Do not attempt to write final content yet — that happens in the next phase. Objective: ${user_title}"
+      --message "Plan Mode discussion phase. Talk through requirements, approach, tradeoffs, and open questions for: ${user_title}. Do not write final content yet."
 
-  rc=$?
+  rc=$?; [ $rc -ne 0 ] && { popd >/dev/null; _plan_cleanup; trap - EXIT; return 1; }
 
-  if [ $rc -ne 0 ]; then
-    popd >/dev/null 2>&1 || true
-    _plan_cleanup
-    trap - EXIT
-
-    return 1
-  fi
-
-  # Phase 2 — code mode, seeded from the same chat history
+  # Phase 2 — architect mode: propose implementation, edits optional
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
-    aider --chat-mode code \
+    aider --chat-mode architect \
       --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
       --restore-chat-history \
-      --file plan.md \
-      --message "Based on the discussion above, write the complete, finalized plan into plan.md now. Do not propose edits to any other file."
+      --no-auto-accept-architect \
+      --message "Based on the discussion above, propose concrete implementation steps. Only apply edits if explicitly approved."
 
   rc=$?
 
-  if [ $rc -ne 0 ]; then
-    popd >/dev/null 2>&1 || true
-    _plan_cleanup
-    trap - EXIT
-
-    return 1
-  fi
-
-  # Phase 3 — hand control back interactively, still scoped to plan.md.
+  # Phase 3 — interactive continuation in architect mode
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
-    aider --chat-mode code \
+    aider --chat-mode architect \
       --chat-history-file "$history_file" \
       --input-history-file "$input_history_file" \
       --restore-chat-history \
-      --file plan.md
+      --no-auto-accept-architect
 
   rc=$?
 
   popd >/dev/null 2>&1 || true
   _plan_cleanup
   trap - EXIT
-  _print_session_diff_report "$repo_root" "plan session"
 
+  _print_session_diff_report "$repo_root" "plan session"
   return $rc
 }
 
@@ -426,6 +381,7 @@ copilot-ask() {
   fi
 
   export USER_SESSION_TITLE="$user_title"
+
   _start_session_single_flow ask "User topic: " || return 1
   return 0
 }
@@ -450,10 +406,11 @@ copilot-agent() {
     extra_args=(--read plan.md)
   fi
 
+  # Broad edit scope here (no --file restriction), so require an explicit
+  # confirmation before each architect edit is applied.
   extra_args+=(--no-auto-accept-architect)
 
   _start_session_single_flow architect "Agent objective: " "${extra_args[@]}" || return 1
-  
   return 0
 }
 
