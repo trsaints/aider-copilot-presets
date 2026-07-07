@@ -33,14 +33,10 @@ _generate_copilot_session_path() {
     raw_title="interactive_session_$(date +%Y%m%d_%H%M%S)"
   fi
 
-  # Sanitize: replace anything but alnum/space/._- with underscore, collapse spaces
   clean_title=$(printf '%s' "$raw_title" | sed 's/[^[:alnum:][:space:]._-]/_/g' | tr -s ' ' ' ')
-
-  # Trim leading/trailing spaces (bash-native, no subshell)
   clean_title="${clean_title#"${clean_title%%[![:space:]]*}"}"
   clean_title="${clean_title%"${clean_title##*[![:space:]]}"}"
 
-  # Character count via bash parameter expansion (locale-aware, no wc/cut subprocess)
   len=${#clean_title}
   if [ "$len" -gt 96 ]; then
     clean_title="${clean_title:0:96}..."
@@ -57,7 +53,6 @@ _generate_copilot_session_path() {
 }
 
 _prepare_copilot_session_dir() {
-  # Usage: _prepare_copilot_session_dir <repo_root>
   local repo_root="$1"
   local repo_name target_dir
 
@@ -70,43 +65,7 @@ _prepare_copilot_session_dir() {
   printf '%s\n' "$target_dir"
 }
 
-_prepare_plan_file() {
-  # Usage: _prepare_plan_file <repo_root>
-  # plan.md must be a REAL file inside repo_root, not a symlink resolving
-  # outside it.
-  local repo_root="$1"
-  local repo_plan gitignore_file
-
-  repo_plan="$repo_root/plan.md"
-
-  if [ -L "$repo_plan" ]; then
-    # Migrate a plan.md left over from the older symlink-based design: pull
-    # its real content back into the repo, then replace the symlink.
-    local old_target
-    old_target=$(readlink -f "$repo_plan" 2>/dev/null || true)
-    rm -f "$repo_plan"
-    if [ -n "$old_target" ] && [ -e "$old_target" ]; then
-      cp "$old_target" "$repo_plan"
-    else
-      touch "$repo_plan"
-    fi
-  elif [ ! -e "$repo_plan" ]; then
-    touch "$repo_plan" 2>/dev/null || return 1
-  fi
-
-  gitignore_file="$repo_root/.gitignore"
-  if [ -f "$gitignore_file" ]; then
-    grep -qxF 'plan.md' "$gitignore_file" 2>/dev/null || printf '\nplan.md\n' >> "$gitignore_file"
-  else
-    printf 'plan.md\n' > "$gitignore_file" 2>/dev/null || true
-  fi
-
-  printf '%s\n' "$repo_plan"
-}
-
 _create_git_shim() {
-  # Create a temp dir containing a git wrapper that blocks history-altering
-  # subcommands. Returns shim dir path on stdout.
   local tmpdir original_git shim
   tmpdir=$(mktemp -d 2>/dev/null) || { tmpdir="/tmp/aider-git-shim-$$"; mkdir -p "$tmpdir" 2>/dev/null || true; }
   original_git=$(command -v git || true)
@@ -140,8 +99,6 @@ GITSH
 }
 
 _plan_cleanup() {
-  # Only clean up the git shim. plan.md is a real, persistent deliverable —
-  # it must survive so a later copilot-agent session can read it back.
   local shim_dir="${COPILOT_GIT_SHIM:-}"
   if [ -n "$shim_dir" ] && [ -d "$shim_dir" ]; then
     rm -rf "$shim_dir" 2>/dev/null || true
@@ -149,9 +106,6 @@ _plan_cleanup() {
 }
 
 _print_session_diff_report() {
-  # Usage: _print_session_diff_report <repo_root> <label>
-  # Runs with the REAL git (called after the shim dir is torn down / from
-  # outside the shimmed PATH), so this is never blocked by the shim itself.
   local repo_root="$1" label="$2" status
 
   if ! git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -171,14 +125,13 @@ _print_session_diff_report() {
 
 _check_aider_available() {
   if ! command -v aider >/dev/null 2>&1; then
-    printf 'ERROR: "aider" CLI not found in PATH. Install or add it to PATH before using these helpers.\n' >&2
+    printf 'ERROR: \"aider\" CLI not found in PATH. Install or add it to PATH before using these helpers.\n' >&2
     return 1
   fi
   return 0
 }
 
 _require_nonempty_prompt() {
-  # Usage: _require_nonempty_prompt "Prompt text" varname
   local prompt_text="$1"
   local __result_var="$2"
   local input
@@ -197,10 +150,6 @@ _require_nonempty_prompt() {
   return 0
 }
 
-# Optional, opt-in filesystem sandbox using bubblewrap (if installed).
-# This does NOT replace a dedicated OS user/group — it's a lighter-weight
-# mitigation that doesn't require one-time root setup. 
-# Enable with: export AIDER_COPILOT_SANDBOX=1
 _maybe_sandboxed_aider() {
   local repo_root="$1" target_dir="$2"; shift 2
   if [ "${AIDER_COPILOT_SANDBOX:-0}" = "1" ] && command -v bwrap >/dev/null 2>&1; then
@@ -221,11 +170,7 @@ _maybe_sandboxed_aider() {
   fi
 }
 
-# Single linear session starter
 _start_session_single_flow() {
-  # $1 = chat_mode (ask|code|architect)
-  # $2 = message_prefix (final message = "${message_prefix}${user_title}")
-  # remaining args = extra aider CLI args, e.g. --file plan.md --read plan.md
   local chat_mode="$1"; shift
   local message_prefix="$1"; shift
   local extra_args=("$@")
@@ -262,8 +207,6 @@ _start_session_single_flow() {
     return 1
   }
 
-  # Seed the conversation. --message sends one instruction, applies the
-  # reply, then EXITS aider entirely
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
     aider --chat-mode "$chat_mode" \
       --chat-history-file "$history_file" \
@@ -290,8 +233,6 @@ _start_session_single_flow() {
   _plan_cleanup
   trap - EXIT
 
-  # Shim is gone and we're back on the real PATH at this point, so this
-  # reads the actual repo state, not anything filtered by the shim.
   _print_session_diff_report "$repo_root" "$chat_mode session"
 
   if [ -n "${USER_SESSION_TITLE:-}" ]; then
@@ -301,8 +242,6 @@ _start_session_single_flow() {
   return $rc
 }
 
-# Two-phase plan flow: ask (discuss, zero edit risk by aider's own design)
-# then code (single-model write, restricted to plan.md).
 _start_plan_flow() {
   local user_title="$1"
   local repo_root target_dir input_history_file history_file git_shim rc
@@ -329,7 +268,6 @@ _start_plan_flow() {
     return 1
   }
 
-  # Phase 1 — ask mode: discussion only
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
     aider --chat-mode ask \
       --chat-history-file "$history_file" \
@@ -338,7 +276,6 @@ _start_plan_flow() {
 
   rc=$?; [ $rc -ne 0 ] && { popd >/dev/null; _plan_cleanup; trap - EXIT; return 1; }
 
-  # Phase 2 — architect mode: propose implementation, edits optional
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
     aider --chat-mode architect \
       --chat-history-file "$history_file" \
@@ -349,7 +286,6 @@ _start_plan_flow() {
 
   rc=$?
 
-  # Phase 3 — interactive continuation in architect mode
   PATH="$git_shim:$PATH" _maybe_sandboxed_aider "$repo_root" "$target_dir" \
     aider --chat-mode architect \
       --chat-history-file "$history_file" \
@@ -366,8 +302,6 @@ _start_plan_flow() {
   _print_session_diff_report "$repo_root" "plan session"
   return $rc
 }
-
-# --- Public helpers ---
 
 copilot-ask() {
   local user_title
@@ -400,14 +334,10 @@ copilot-agent() {
   export USER_SESSION_TITLE="$user_title"
   repo_root=$(_resolve_repo_root)
 
-  # If a plan.md exists (from copilot-plan), hand it to the agent as
-  # read-only reference context — mirrors "start agent mode using the plan".
   if [ -f "$repo_root/plan.md" ]; then
     extra_args=(--read plan.md)
   fi
 
-  # Broad edit scope here (no --file restriction), so require an explicit
-  # confirmation before each architect edit is applied.
   extra_args+=(--no-auto-accept-architect)
 
   _start_session_single_flow architect "Agent objective: " "${extra_args[@]}" || return 1
@@ -429,8 +359,5 @@ copilot-plan() {
   return 0
 }
 
-# Restore IFS
 IFS="$OLD_IFS"
 unset OLD_IFS
-
-# End of script
