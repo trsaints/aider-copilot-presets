@@ -2,15 +2,7 @@
 # Shared settings across ask / agent / plan sessions.
 # Aider loads home dir -> git root -> cwd, last one loaded wins:
 # https://aider.chat/docs/config/aider_conf.html
-#
-# NOTE on the model line: openrouter/free is OpenRouter's "Free Models
-# Router" — it picks a *different* underlying free model on every request.
-# That's fine for copilot-ask (stateless-ish Q&A), but for copilot-agent and
-# copilot-plan it can silently swap edit-format behavior mid-conversation.
-# If you see garbled/rejected diffs, pin a single model instead, e.g.:
-#   model: openrouter/deepseek/deepseek-chat:free
-# (check https://openrouter.ai/models?order=top-weekly&supported_parameters=tools
-#  for whichever :free model is currently live — the free roster rotates).
+
 model: openrouter/openrouter/free
 
 # --- Git integration ---
